@@ -1,0 +1,12 @@
+<odoo>
+  <template id="assets_backend_custom" inherit_id="web.assets_backend">
+    <xpath expr="." position="inside">
+      <style type="text/css">
+        /* Oculta los tabs que tengan el atributo name vacío */
+        .o_notebook > li[aria-label=""] {
+            display: none !important;
+        }
+      </style>
+    </xpath>
+  </template>
+</odoo>

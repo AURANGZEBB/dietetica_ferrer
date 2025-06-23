@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_picking_withcarrier_out_form" model="ir.ui.view">
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>  <!-- Vista base de stock.picking -->
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="cttexpress_get_label"
+                        string="CTT Express Label"
+                        type="object"
+                        invisible="not carrier_tracking_ref"
+                />
+                <button name="cancel_shipment"
+                        string="Cancel Delivery"
+                        type="object"
+                        confirm="Vas a cancelar el envío, ¿Estas seguro?"
+                        invisible="not carrier_tracking_ref"
+                />
+            </xpath>
+        </field>
+    </record>
+</odoo>

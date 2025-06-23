@@ -1,0 +1,77 @@
+<odoo>
+    <record id="view_delivery_carrier_form" model="ir.ui.view">
+        <field name="model">delivery.carrier</field>
+        <field name="inherit_id" ref="delivery.view_delivery_carrier_form"/>
+        <field name="arch" type="xml">
+            <!-- Campo is_ctt invisible -->
+            <field name="product_id" position="after">
+                <field name="is_ctt" invisible="1"/>
+            </field>
+
+            <!-- Incluimos los campos computados para que estén disponibles en el cliente -->
+            <xpath expr="//form" position="inside">
+                <field name="cttexpress_api" invisible="0"/>
+                <field name="show_soap" invisible="1"/>
+                <field name="show_rest" invisible="1"/>
+            </xpath>
+
+            <!-- Botón Pickup request, solo visible cuando is_ctt sea True -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button
+                    name="%(delivery_cttexpress.action_delivery_cttexpress_pickup_wizard)d"
+                    type="action"
+                    class="oe_stat_button"
+                    icon="fa-truck"
+                    string="Pickup request"
+                    context="{'default_carrier_id': active_id}"
+                    invisible="not is_ctt"/>
+            </xpath>
+
+            <!-- Página de configuración de CTT Express -->
+            <xpath expr="//notebook/page[1]" position="before">
+                <page string="CTT Express Configuration" invisible="not is_ctt">
+                    <!-- Campo para seleccionar API -->
+                    <group>
+                        <field name="cttexpress_api" required="1" style="width:5%;"/>
+                    </group>
+                    <!-- Agrupamos en dos columnas -->
+                    <group colspan="2">
+                        <!-- Columna 1: Datos del Cliente (según SOAP o REST) -->
+                        <group colspan="1">
+                            <!-- Configuración SOAP: se oculta cuando se selecciona REST -->
+                            <group string="Configuración SOAP" invisible="show_rest">
+                                <field name="cttexpress_user" required="1"/>
+                                <field name="cttexpress_password" password="True" required="1"/>
+                                <field name="cttexpress_agency" required="1"/>
+                                <field name="cttexpress_customer" required="1"/>
+                                <field name="cttexpress_contract" required="1"/>
+                                <field name="cttexpress_shipping_type" required="1"/>
+                            </group>
+                            <!-- Configuración REST: se oculta cuando se selecciona SOAP -->
+                            <group string="Configuración REST" invisible="show_soap">
+                                <field name="cttexpress_rest_id" string="Id Cliente" required="1"/>
+                                <field name="cttexpress_rest_secret" string="Clave Secreta Cliente" required="1"/>
+                                <field name="cttexpress_rest_user" string="Nombre de Usuario" required="1"/>
+                                <field name="cttexpress_rest_password" password="True" string="Contraseña" required="1"/>
+                                <field name="cttexpress_rest_agency" string="Código Centro Cliente" required="1"/>
+                                <field name="cttexpress_rest_shipping_type" required="1"/>
+                            </group>
+                        </group>
+                        <!-- Columna 2: Datos de Label -->
+                        <group colspan="1">
+                            <group string="Label Format">
+                                <field name="cttexpress_document_model_code" required="1"/>
+                                <field name="cttexpress_document_format" required="1"/>
+                                <field name="cttexpress_document_offset" required="1"/>
+                            </group>
+                            <group string="Número de Bultos">
+                                <field name="custom_ask_package_number"/>
+                                <field name="default_number_of_packages" widget="integer" placeholder="Ej: 1"/>
+                            </group>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
