@@ -1,4 +1,5 @@
 <odoo>
+    <!-- Producto asociado al transportista -->
     <record id="product_product_ctt" model="product.product">
         <field name="name">CTT Express Shipping</field>
         <field name="type">service</field>
@@ -6,11 +7,9 @@
         <field name="list_price">0.00</field>
     </record>
 
+    <!-- Transportista base con configuración mínima -->
     <record id="delivery_carrier_ctt" model="delivery.carrier">
         <field name="name">CTT Express</field>
-        <field name="delivery_type">ctt</field>
-        <field name="product_id" ref="product_product_ctt"/>
+        <field name="delivery_type">cttexpress</field>
     </record>
-
-    
 </odoo>

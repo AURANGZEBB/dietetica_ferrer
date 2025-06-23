@@ -90,7 +90,7 @@ msgstr "CANARIAS COMERCIO ELECTRÓNICO"
 #. module: delivery_cttexpress
 #: model:ir.model.fields.selection,name:delivery_cttexpress.selection__delivery_carrier__delivery_type__cttexpress
 msgid "CTT Express"
-msgstr "CTT Expreso"
+msgstr "CTT Express"
 
 #. module: delivery_cttexpress
 #: model_terms:ir.ui.view,arch_db:delivery_cttexpress.view_delivery_carrier_form

@@ -73,3 +73,75 @@ CTTEXPRESS_DELIVERY_STATES_STATIC = {
     "91": "in_transit",  # REACTIVACION ENVIO (TOL)
     "99": "in_transit",  # COMPUESTO
 }
+
+CTTEXPRESS_REST_DELIVERY_STATES = {  # REST
+    "0000": "shipping_recorded_in_carrier",  # MANIFESTADO
+    "0010": "shipping_recorded_in_carrier",  # RECEPCIÓN PROVISIONAL
+    "0020": "shipping_recorded_in_carrier",  # PENDIENTE DE DEPOSITAR EN PUNTO
+    "0030": "shipping_recorded_in_carrier",  # DEPOSITADO EN PUNTO
+    "0300": "shipping_recorded_in_carrier",  # RECOGIDA ASIGNADA
+    "0400": "canceled_shipment",             # RECOGIDA ANULADA
+    "0500": "in_transit",                     # ENVÍO RECOGIDO
+    "0600": "incidence",                      # RECOGIDA FALLIDA
+    "0700": "in_transit",                     # DELEGACIÓN DE ORIGEN
+    "0900": "in_transit",                     # EN TRÁNSITO
+    "1000": "in_transit",                     # DELEGACIÓN DE TRÁNSITO
+    "1100": "incidence",                      # MAL TRANSITADO
+    "1200": "in_transit",                     # DELEGACIÓN DE DESTINO
+    "1500": "in_transit",                     # EN REPARTO
+    "1600": "incidence",                      # REPARTO FALLIDO
+    "1700": "incidence",                      # ENVÍO ESTACIONADO
+    "1800": "in_transit",                     # ESTACIONADO UBICADO
+    "1900": "in_transit",                     # PENDIENTE DE EXTRACCIÓN
+    "2100": "customer_delivered",             # ENTREGADO
+    "2200": "customer_delivered",             # ENTREGA PARCIAL
+    "2300": "shipping_recorded_in_carrier",   # PENDIENTE DE ADMISIÓN
+    "2310": "shipping_recorded_in_carrier",   # DISPONIBLE EN PUNTO
+    "2400": "in_transit",                     # NUEVO REPARTO
+    "2500": "canceled_shipment",              # DEVOLUCIÓN
+    "2600": "in_transit",                     # REEXPEDICIÓN
+    "2700": "in_transit",                     # ALMACÉN REGULADOR
+    "2900": "in_transit",                     # RECOGER EN DELEGACIÓN
+    "3000": "canceled_shipment",              # ENVÍO ANULADO
+    "3900": "in_transit",                     # TRÁNSITO INTERNACIONAL
+    "3901": "in_transit",                     # GESTIÓN ADUANERA
+    "3902": "in_transit",                     # DESPACHADO
+    "3903": "in_transit",                     # REVISIÓN ADUANERA
+    "3904": "in_transit",                     # INSPECCIÓN ADUANERA
+}
+
+CTTEXPRESS_REST_DELIVERY_STATES_LABELS = {
+    "0000": "Manifestado",
+    "0010": "Recepción provisional",
+    "0020": "Pendiente de depositar en punto",
+    "0030": "Depositado en punto",
+    "0300": "Recogida asignada",
+    "0400": "Recogida anulada",
+    "0500": "En tránsito",
+    "0600": "Recogida fallida",
+    "0700": "Delegación de origen",
+    "0900": "En tránsito",
+    "1000": "Delegación de tránsito",
+    "1100": "Mal transitado",
+    "1200": "Delegación de destino",
+    "1500": "En reparto",
+    "1600": "Reparto fallido",
+    "1700": "Envío estacionado",
+    "1800": "Estacionado ubicado",
+    "1900": "Pendiente de extracción",
+    "2100": "Entregado",
+    "2200": "Entrega parcial",
+    "2300": "Pendiente de admisión",
+    "2310": "Disponible en punto",
+    "2400": "Nuevo reparto",
+    "2500": "Devuelto",
+    "2600": "Reexpedición",
+    "2700": "Almacén regulador",
+    "2900": "Recoger en delegación",
+    "3000": "Envío anulado",
+    "3900": "Tránsito internacional",
+    "3901": "Gestión aduanera",
+    "3902": "Despachado",
+    "3903": "Revisión aduanera",
+    "3904": "Inspección aduanera",
+}

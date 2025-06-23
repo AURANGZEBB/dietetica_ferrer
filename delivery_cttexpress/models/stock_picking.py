@@ -28,18 +28,14 @@ class StockPicking(models.Model):
         
     def _compute_ask_number_of_packages(self):
         for picking in self:
-            picking.number_of_packages = None
-            picking.ask_number_of_packages = None
-            if picking.carrier_id:
-                if picking.carrier_id.delivery_type == "ctt":
-                    custom = picking.carrier_id.get_ask_package_number_custom()
-                    if custom is not None:
-                        picking.ask_number_of_packages = custom
-                    else:
-                        picking.ask_number_of_packages = bool(
-                            picking.carrier_id and not picking.package_ids or picking.picking_type_id.force_set_number_of_packages
-                        )
-                    # Si no se va a preguntar y no se han definido paquetes, asignamos el valor por defecto
-                    if not picking.ask_number_of_packages and not picking.package_ids:
-                        default_nop = picking.carrier_id.default_number_of_packages or 1
-                        picking.number_of_packages = default_nop
+            custom = picking.carrier_id.get_ask_package_number_custom()
+            if custom is not None:
+                picking.ask_number_of_packages = custom
+            else:
+                picking.ask_number_of_packages = bool(
+                    picking.carrier_id and not picking.package_ids or picking.picking_type_id.force_set_number_of_packages
+                )
+            # Si no se va a preguntar y no se han definido paquetes, asignamos el valor por defecto
+            if not picking.ask_number_of_packages and not picking.package_ids:
+                default_nop = picking.carrier_id.default_number_of_packages or 1
+                picking.number_of_packages = default_nop

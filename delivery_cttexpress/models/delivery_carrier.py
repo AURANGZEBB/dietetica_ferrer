@@ -1,13 +1,14 @@
 # Copyright 2022 Tecnativa - David Vidal
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from datetime import date
 
 from .cttexpress_master_data import (
     CTTEXPRESS_DELIVERY_STATES_STATIC,
     CTTEXPRESS_SERVICES,
     REST_CTTEXPRESS_SERVICES,
+    CTTEXPRESS_REST_DELIVERY_STATES
 )
 from .cttexpress_request import CTTExpressRequest
 from .cttexpress_rest_request import CttExpressRestAPI
@@ -23,53 +24,54 @@ class DeliveryCarrier(models.Model):
     _inherit = "delivery.carrier"
 
     delivery_type = fields.Selection(
-        selection_add=[('ctt', 'CTT Express')],
-        ondelete={'ctt': 'set default'}  # <- Política obligatoria para evitar errores
+        selection_add=[
+            ('cttexpress', 'CTT Express'),
+        ],
+        ondelete={'cttexpress': 'set default'},
     )
 
     is_ctt = fields.Boolean(string="Es CTT", compute="_compute_is_ctt", store=True)
     is_ctt_visible = fields.Boolean(
-        string="Es CTT Visible", store=True
+        string="Es CTT Visible", compute="_compute_is_ctt", store=True
     )
 
     @api.model
     def create(self, vals):
-        record = super(DeliveryCarrier, self).create(vals)
-        record._onchange_delivery_type_ctt()
-        return record
+        if vals.get('delivery_type') == 'cttexpress':
+            # Siempre crear uno nuevo
+            name = vals.get('name') or 'CTT Express'
+            product = self.env['product.product'].create({
+                'name': name,
+                'type': 'service',
+                'list_price': 0.0,
+            })
+            vals['product_id'] = product.id
+            _logger.info("🆕 Nuevo product_id creado: %s (%s)", product.id, product.name)
 
-    @api.depends('name')
+        return super().create(vals)
+
+    @api.depends('delivery_type')
     def _compute_is_ctt(self):
         for carrier in self:
-            # Obtiene el valor del nombre, que puede ser una cadena o un JSON
-            name_value = carrier.name
-            if isinstance(name_value, str):
-                try:
-                    name_value = json.loads(name_value)
-                except Exception:
-                    # Si no es un JSON, se mantiene la cadena
-                    pass
-            # Si es un dict, extraemos el valor en 'en_US' (o el idioma que prefieras)
-            if isinstance(name_value, dict):
-                value = name_value.get("en_US", "").strip().lower()
-            else:
-                value = str(name_value).strip().lower()
-            carrier.is_ctt = (value == "ctt express")
+            carrier.is_ctt = (carrier.delivery_type == 'cttexpress')
+
     cttexpress_api = fields.Selection(
         selection=[
             ('REST', 'REST'),
             ('SOAP', 'SOAP'),
         ],
         string="CTT Express API",
-        default='SOAP'
+        default='REST'
     )
 
+    # --- Datos SOAP ---
     cttexpress_user = fields.Char(string="User")
     cttexpress_password = fields.Char(string="Password")
     cttexpress_customer = fields.Char(string="Customer code")
     cttexpress_agency = fields.Char(string="Agency code")
     cttexpress_contract = fields.Char(string="Contract code")
 
+    # --- Datos REST ---
     cttexpress_rest_id = fields.Char(string="Id Cliente")
     cttexpress_rest_secret = fields.Char(string="Clave Secreta Cliente")
     cttexpress_rest_user = fields.Char(string="Nombre de Usuario")
@@ -79,10 +81,15 @@ class DeliveryCarrier(models.Model):
     cttexpress_shipping_type = fields.Selection(
         selection=CTTEXPRESS_SERVICES,
         string="Shipping type",
+        default="19E"
     )
+    def _get_default_rest_shipping_type(self):
+        return REST_CTTEXPRESS_SERVICES[0][0] if REST_CTTEXPRESS_SERVICES else False
+
     cttexpress_rest_shipping_type = fields.Selection(
         selection=REST_CTTEXPRESS_SERVICES,
         string="Tipo de Servicio",
+        default=_get_default_rest_shipping_type
     )
     cttexpress_document_model_code = fields.Selection(
         selection=[
@@ -106,6 +113,16 @@ class DeliveryCarrier(models.Model):
         help="Si se desactiva, no se solicitará el número de paquetes al validar el picking."
     )
 
+    custom_ask_default_weight = fields.Boolean(
+        string="Definir peso por defecto en kilogramos", default=False,
+        help="Si se activa el peso del envío será el definido"
+    )
+
+    default_weight = fields.Integer(
+        string="Peso por Defecto", default=1,
+        help="Peso que se asignará por defecto al pedido."
+    )
+
     default_number_of_packages = fields.Integer(
         string="Número de Bultos por Defecto", default=1,
         help="Número de bultos que se asignará por defecto si no se pregunta al usuario."
@@ -122,22 +139,18 @@ class DeliveryCarrier(models.Model):
             rec.show_rest = (rec.cttexpress_api == 'REST')
 
     def _is_ctt(self):
-        # Si el nombre es un diccionario (o una cadena que representa un diccionario)
         name_value = self.name
         if isinstance(name_value, str):
             try:
-                # Intentamos cargarlo como JSON
                 name_value = json.loads(name_value)
             except Exception:
-                # Si falla, se queda como string
                 pass
-        # Si es un dict, tomamos el valor en 'en_US' (o el idioma que prefieras)
         if isinstance(name_value, dict):
             name_value = name_value.get("en_US", "").strip().lower()
         else:
             name_value = str(name_value).strip().lower()
 
-        return name_value == "ctt express"
+        return "ctt express" in name_value
 
     @api.onchange("delivery_type", "name")
     def _onchange_delivery_type_ctt(self):
@@ -147,6 +160,37 @@ class DeliveryCarrier(models.Model):
             self.is_ctt = True
         else:
             self.is_ctt = False
+    
+    @api.constrains('cttexpress_api')
+    def _check_required_ctt_fields(self):
+        if self.env.context.get('install_mode') or self.env.context.get('module'):
+            return  # 🛑 No validar durante instalación
+
+        for record in self:
+            if record.delivery_type != 'cttexpress':
+                continue
+
+            if record.cttexpress_api == 'SOAP':
+                required_fields = [
+                    record.cttexpress_user,
+                    record.cttexpress_password,
+                    record.cttexpress_customer,
+                    record.cttexpress_agency,
+                    record.cttexpress_contract
+                ]
+                if not all(required_fields):
+                    raise ValidationError(_("Debes rellenar todos los campos SOAP para CTT Express."))
+
+            elif record.cttexpress_api == 'REST':
+                required_fields = [
+                    record.cttexpress_rest_id,
+                    record.cttexpress_rest_secret,
+                    record.cttexpress_rest_user,
+                    record.cttexpress_rest_password,
+                    record.cttexpress_rest_agency
+                ]
+                if not all(required_fields):
+                    raise ValidationError(_("Debes rellenar todos los campos REST para CTT Express."))
 
     def _ctt_request(self):
         """Get CTT Request object
@@ -171,7 +215,7 @@ class DeliveryCarrier(models.Model):
             username=self.cttexpress_rest_user,
             password=self.cttexpress_rest_password,
             client_code=self.cttexpress_rest_agency,
-            platform=self.cttexpress_rest_shipping_type  # O el campo que corresponda
+            platform="Odoo"
         )
 
     @api.model
@@ -289,21 +333,21 @@ class DeliveryCarrier(models.Model):
             # Estructura del manifest para la API REST (según la documentación y ejemplo proporcionado)
             manifest = {
                 "client_center_code": self.cttexpress_rest_agency,  
-                "platform": "ODOO17", 
+                "platform": "Odoo", 
                 "shipping_type_code": self.cttexpress_rest_shipping_type,  
                 "client_references": [reference],  
-                "shipping_weight_declared": int(picking.shipping_weight) or 1, 
+                "shipping_weight_declared": int(self.default_weight) if self.custom_ask_default_weight else int(picking.shipping_weight) or 1,
                 "item_count": int(picking.number_of_packages) or 1,
                 "sender_name": sender_partner.name,
                 "sender_country_code": sender_partner.country_id.code or "ES",
                 "sender_postal_code": sender_partner.zip or "",
-                "sender_address": (sender_partner.street + "," + sender_partner.street2) if sender_partner.street2 else sender_partner.street or "",
+                "sender_address": sender_partner.street or "",
                 "sender_town": sender_partner.city or "",
                 "sender_phones": [sender_partner.phone or ""],
                 "recipient_name": recipient.name or (recipient_entity.name if recipient_entity else ""),
                 "recipient_country_code": recipient.country_id.code or "ES",
                 "recipient_postal_code": recipient.zip or "",
-                "recipient_address": (recipient.street + "," + recipient.street2) if recipient.street2 else recipient.street or "",
+                "recipient_address": f"{recipient.street} {recipient.street2 or ''}".strip(),
                 "recipient_town": recipient.city or "",
                 "recipient_phones": [recipient.phone or ""],
                 "shipping_date": date.today().strftime("%Y-%m-%d"),  
@@ -320,7 +364,7 @@ class DeliveryCarrier(models.Model):
                 "ClientDepartmentCode": None,  
                 "ItemsCount": picking.number_of_packages,
                 "IsClientPodScanRequired": None,  
-                "RecipientAddress": recipient.street,
+                "RecipientAddress": f"{recipient.street} {recipient.street2 or ''}".strip(),
                 "RecipientCountry": recipient.country_id.code,
                 "RecipientEmail": recipient.email or recipient_entity.email,  
                 "RecipientSMS": None,  
@@ -339,7 +383,7 @@ class DeliveryCarrier(models.Model):
                 "SenderTown": sender_partner.city,
                 "ShippingComments": None,  
                 "ShippingTypeCode": self.cttexpress_shipping_type,
-                "Weight": int(picking.shipping_weight * 1000) or 1,  
+                "Weight": int(self.default_weight * 1000) if self.custom_ask_default_weight else int(picking.shipping_weight * 1000) or 1,
                 "PodScanInstructions": None, 
                 "IsFragile": None,  
                 "RefundTypeCode": None,  
@@ -350,58 +394,88 @@ class DeliveryCarrier(models.Model):
         
     def rate_shipment(self, order):
         self.ensure_one()
-        if self.delivery_type != 'ctt':
+
+        if self.delivery_type != 'cttexpress':
             return super().rate_shipment(order)
 
-        # Si usas reglas de precio de Odoo, usa la lógica estándar
-        if self.delivery_type == 'ctt' and self.fixed_price is not None:
-            return {'success': True, 'price': self.fixed_price, 'error_message': False, 'warning_message': False}
-        
-        # O si tienes lógica personalizada:
-        price = 7.0
+        # Si el método de precio es fijo y se ha definido un precio
+        if self.price_method == 'fixed' and self.fixed_price is not None:
+            return {
+                'success': True,
+                'price': self.fixed_price,
+                'carrier_price': self.fixed_price,
+                'error_message': False,
+                'warning_message': False,
+            }
+
+        # Si el método es por regla, que Odoo lo gestione normalmente
+        if self.price_method == 'base_on_rule':
+            return super().rate_shipment(order)
+
         return {
-            'success': True,
-            'price': price,
-            'error_message': False,
+            'success': False,
+            'price': 0.0,
+            'carrier_price': 0.0,
+            'error_message': _("Este transportista no tiene un método de precio válido o configurado."),
             'warning_message': False,
         }
 
     def send_shipping(self, pickings):
-        result = []
-
-        # Only continue if delivery type is CTT
-        if self.delivery_type != "ctt":
-            _logger.info("Skipping shipping because delivery_type is not CTT.")
+        self.ensure_one()
+        if self.delivery_type != "cttexpress":
             return super().send_shipping(pickings)
-
+        result = []
         for picking in pickings:
-            _logger.info("picking a enviar: %s", json.dumps(picking.read(), indent=4, default=str))
+            _logger.info("Iniciando envío para el picking: %s", picking.name)
+            try:
+                # Registro de datos del picking
+                picking_data = picking.read()[0]
+                _logger.debug("Datos completos del picking: %s", json.dumps(picking_data, indent=4, default=str))
+            except Exception as e:
+                _logger.error("Error al leer datos del picking %s: %s", picking.name, e)
+
+            # Preparar manifest para el envío
             vals = self._prepare_cttexpress_shipping(picking)
+            _logger.info("Manifest (valores) preparado para picking %s: %s", picking.name, json.dumps(vals, indent=4))
+            
             if self.cttexpress_api == 'REST':
-                # Uso de la integración REST
+                _logger.info("Utilizando la integración REST para el picking: %s", picking.name)
                 rest_api = self._ctt_rest_request()
-                api_result = rest_api.createShipment(vals)
+                try:
+                    api_result = rest_api.createShipment(vals)
+                    _logger.info("Respuesta de createShipment (REST) para %s: %s", picking.name, json.dumps(api_result, indent=4))
+                except Exception as e:
+                    _logger.error("Error al crear el envío REST para el picking %s: %s", picking.name, e)
+                    raise e
                 tracking = api_result.get("shipping_data", {}).get("shipping_code")
+                _logger.info("Código de tracking obtenido (REST) para %s: %s", picking.name, tracking)
             else:
-                # Uso de la integración SOAP (método actual)
+                _logger.info("Utilizando la integración SOAP para el picking: %s", picking.name)
                 ctt_request = self._ctt_request()
                 try:
                     error, documents, tracking = ctt_request.manifest_shipping(vals)
+                    _logger.info("Respuesta de manifest_shipping (SOAP) para %s: tracking=%s", picking.name, tracking)
                     self._ctt_check_error(error)
                 except Exception as e:
-                    _logger.debug("Excepción en manifest_shipping para picking %s: %s", picking.name, e)
+                    _logger.error("Excepción en manifest_shipping (SOAP) para %s: %s", picking.name, e)
                     raise e
                 finally:
                     self._ctt_log_request(ctt_request)
-            # Se asigna el tracking al picking
+
+            # Asignar el tracking al picking
             if tracking:
                 if not picking.carrier_tracking_ref:
                     picking.carrier_tracking_ref = tracking
                 else:
                     picking.carrier_tracking_ref += "," + tracking
+                _logger.info("Tracking asignado para %s: %s", picking.name, picking.carrier_tracking_ref)
+            else:
+                _logger.warning("No se obtuvo tracking para el picking: %s", picking.name)
 
+            # Calcular y asignar el precio del envío
             price_result = self.rate_shipment(picking.sale_id)
             exact_price = price_result.get("price", 0.0)
+            _logger.info("Precio calculado para %s: %s", picking.name, exact_price)
             picking.write({
                 'carrier_price': exact_price,
             })
@@ -410,15 +484,24 @@ class DeliveryCarrier(models.Model):
                 "tracking_number": tracking,
                 "exact_price": exact_price,
             })
-            # Solicitar la etiqueta
+            _logger.debug("Manifest actualizado con precio y tracking para %s: %s", picking.name, json.dumps(vals, indent=4))
+
+            # Dar una pequeña pausa antes de solicitar la etiqueta
             time.sleep(2)
-            documents = self.cttexpress_get_label(tracking)
-            if not documents:
-                attachments = []
-            else:
-                attachments = documents
+            try:
+                documents = self.cttexpress_get_label(tracking)
+                if documents:
+                    _logger.info("Etiqueta(s) generada(s) para %s", picking.name)
+                else:
+                    _logger.warning("No se obtuvieron etiquetas para %s", picking.name)
+            except Exception as e:
+                _logger.error("Error al obtener etiqueta para %s: %s", picking.name, e)
+                raise e
+            attachments = documents if documents else []
             picking.message_post(body=_("CTT Shipping Documents"), attachments=attachments)
+
             result.append(vals)
+            _logger.info("Envío completado para %s, tracking final: %s", picking.name, tracking)
         return result
 
     def cancel_shipment(self, pickings):
@@ -427,6 +510,9 @@ class DeliveryCarrier(models.Model):
         :param recordset pickings: pickings `stock.picking` recordset
         :returns boolean: True si la cancelación fue exitosa
         """
+        if self.delivery_type != 'cttexpress':
+            return super().cancel_shipment(pickings)
+        
         for picking in pickings.filtered("carrier_tracking_ref"):
             if self.cttexpress_api == 'REST':
                 rest_api = self._ctt_rest_request()
@@ -547,28 +633,87 @@ class DeliveryCarrier(models.Model):
         return [(file_name, label_content)]
 
     def cttexpress_tracking_state_update(self, picking):
-        """Wildcard method for CTT Express tracking followup
+        """Wildcard method for CTT Express tracking followup.
 
         :param record picking: `stock.picking` record
         """
-        self.ensure_one()
-        if not picking.carrier_tracking_ref:
+        if self.delivery_type != "cttexpress":
             return
-        ctt_request = self._ctt_request()
+
+        self.ensure_one()
+
+        if not picking.carrier_tracking_ref:
+            _logger.warning("❗ No hay carrier_tracking_ref para el picking %s", picking.name)
+            return
+
+        _logger.info("🚀 Iniciando seguimiento de tracking para picking %s (%s)", picking.name, picking.carrier_tracking_ref)
+        _logger.info("🌐 API configurada: %s", self.cttexpress_api)
+
+        trackings = []
         try:
-            error, trackings = ctt_request.get_tracking(picking.carrier_tracking_ref)
-            self._ctt_check_error(error)
+            if self.cttexpress_api == 'REST':
+                _logger.info("🛜 Usando API REST para obtener tracking.")
+                ctt_request = self._ctt_rest_request()
+                trackings = ctt_request.getTracking(picking.carrier_tracking_ref)
+                _logger.info("📦 Trackings recibidos (REST): %s", trackings)
+            else:
+                _logger.info("📡 Usando API SOAP para obtener tracking.")
+                ctt_request = self._ctt_request()
+                error, trackings = ctt_request.get_tracking(picking.carrier_tracking_ref)
+                _logger.info("📦 Trackings recibidos (SOAP): error=%s, trackings=%s", error, trackings)
+                self._ctt_check_error(error)
         except Exception as e:
-            raise e
+            _logger.error("❌ Error en tracking (%s): %s", self.cttexpress_api, e)
+            raise
         finally:
-            self._ctt_log_request(ctt_request)
-        picking.tracking_state_history = "\n".join(
-            [self._cttexpress_format_tracking(tracking) for tracking in trackings]
-        )
-        current_tracking = trackings.pop()
-        picking.tracking_state = self._cttexpress_format_tracking(current_tracking)
-        picking.delivery_state = CTTEXPRESS_DELIVERY_STATES_STATIC.get(
-            current_tracking["StatusCode"], "incidence"
+            if self.cttexpress_api != 'REST':
+                self._ctt_log_request(ctt_request)
+
+        if not trackings:
+            _logger.warning("⚠️ No se encontraron trackings para el envío %s", picking.carrier_tracking_ref)
+            return
+
+        _logger.info("🔧 Formateando trackings recibidos...")
+
+        try:
+            picking.tracking_state_history = "\n".join(
+                [self._cttexpress_format_tracking(tracking) for tracking in trackings]
+            )
+            _logger.info("📝 Histórico de estados actualizado para %s", picking.name)
+
+            current_tracking = trackings[-1]  # Usamos el último tracking (más reciente)
+            status_code = current_tracking.get("StatusCode")
+
+            if self.cttexpress_api == 'REST':
+                delivery_state = CTTEXPRESS_REST_DELIVERY_STATES.get(status_code)
+            else:
+                delivery_state = CTTEXPRESS_DELIVERY_STATES_STATIC.get(str(int(status_code)) if status_code else "")
+
+            valid_states = dict(self.env['stock.picking']._fields['delivery_state'].selection).keys()
+            if delivery_state and delivery_state in valid_states:
+                picking.delivery_state = delivery_state
+                _logger.info("✅ Estado actual de %s actualizado a: %s", picking.name, picking.delivery_state)
+            else:
+                _logger.warning(
+                    "⚠️ Estado no reconocido o inválido '%s' (StatusCode: '%s') para picking %s. No se actualiza delivery_state.",
+                    delivery_state, status_code, picking.name
+                )
+
+            picking.tracking_state = self._cttexpress_format_tracking(current_tracking)
+
+        except Exception as e:
+            _logger.error("❌ Error al procesar los trackings: %s", e)
+            raise
+
+    def _cttexpress_format_tracking(self, tracking):
+        """Formatea un tracking REST de CTT para almacenarlo como texto."""
+        if not tracking:
+            return "[Sin fecha] Sin descripción (Sin código)"
+        
+        return "[{}] {} ({})".format(
+            tracking.get("StatusDateTime", "Sin fecha"),
+            tracking.get("StatusDescription", "Sin descripción"),
+            tracking.get("StatusCode", "Sin código")
         )
 
     def get_tracking_link(self, picking):
@@ -577,12 +722,29 @@ class DeliveryCarrier(models.Model):
         :param record picking: `stock.picking` record
         :return str: tracking url
         """
+        if self.delivery_type != "cttexpress":
+            return super().get_tracking_link(picking)
         tracking_url = (
             "https://www.cttexpress.com/localizador-de-envios/?sc={}"
         )
         return tracking_url.format(picking.carrier_tracking_ref)
 
     def get_ask_package_number_custom(self):
+        result = {}
+        for carrier in self:
+            result[carrier.id] = carrier.cttexpress_api == 'REST' and carrier.custom_ask_package_number
+        return result.get(self.id, False)
+    
+    def get_ask_custom_ask_default_weight(self):
         self.ensure_one()
-        # Retorna el valor que quieras para influir en el cálculo
-        return self.custom_ask_package_number
+        return self.custom_ask_default_weight
+    
+    @api.model
+    def has_ctt_soap_carrier(self):
+        """Devuelve True si existe al menos un transportista CTT configurado con API SOAP"""
+        carriers = self.search([
+            ('delivery_type', '=', 'cttexpress'),
+            ('cttexpress_api', '=', 'SOAP')
+        ])
+        _logger.error("Respuesta has_CTT_SOAP_carrier: %s", carriers)
+        return bool(carriers)
